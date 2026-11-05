@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pulse-health-pipeline"
+version = "0.1.0"
+description = "A data pipeline for a regional health registry: incremental sync, a transmission queue that survives crashes, indicators computed outside the model, and hybrid search with a measured evaluation."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.5",
+  "httpx>=0.27",
+  "sqlalchemy>=2.0.35",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.13",
+  "pgvector>=0.3",
+  "celery[redis]>=5.4",
+  "redis>=5.0",
+  "cryptography>=43",
+  "python-multipart>=0.0.12",  # the gateway stand-in reads a form-encoded token request
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "hypothesis>=6.112",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "types-redis",
+]
+
+[project.scripts]
+pulse = "pulse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+markers = [
+  "integration: needs real PostgreSQL with pgvector (set DATABASE_URL)",
+]
+filterwarnings = ["error::RuntimeWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "C4", "SIM", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# The formatter keeps code within 120 columns; what E501 still sees in tests is comments and long test names.
+# S608: tests build SQL from constant table names; S104: "0.0.0.0" appears as a hostile Host header.
+"tests/*" = ["E501", "S104", "S105", "S106", "S311", "S603", "S607", "S608"]
+"scripts/*" = ["S105", "S603", "S607", "S311"]
+"scripts/sabotage.py" = ["E501"]  # a mutant quotes a line of the source exactly, so it is as long as that line
+"src/pulse/synthetic.py" = ["S311"]  # a seeded generator of fictitious data, not a source of secrets
+"src/pulse/standin/registry_app.py" = ["S311"]  # the same generator, driven from the lab
+"src/pulse/search/corpus.py" = ["E501"]  # the notes are prose; wrapping them would only make them harder to read
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true

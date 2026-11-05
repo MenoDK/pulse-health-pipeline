@@ -1,0 +1,171 @@
+name: pulse-health-pipeline
+
+# `make demo` starts this stack with the lab on. Plain `docker compose up` starts the pipeline as it would run for
+# real: the API (no lab, no site), a worker and the scheduler. Only the API is published, and only on loopback.
+x-app: &app
+  image: pulse-health-pipeline:local # built once, by the api service below, and shared by every service of this stack
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  environment: &env
+    DATABASE_URL: postgresql://pulse:${DB_PASSWORD:-pulse}@db:5432/pulse
+    REDIS_URL: redis://redis:6379/0
+    API_KEY: ${API_KEY:-change-me}
+    LAB_MODE: ${LAB_MODE:-false}
+    SITE_DIR: ${SITE_DIR:-}
+    STANDIN_CONTROL: ${LAB_MODE:-false}
+    STANDIN_SUBJECTS: ${STANDIN_SUBJECTS:-250} # people in the generated registry: enough for every indicator, few enough to drain by hand
+    STANDIN_AS_OF: ${STANDIN_AS_OF:-} # the day the generated registry is up to date to; make demo passes today, so the indicators do not age
+    REGISTRY_URL: http://registry:9100
+    GATEWAY_URL: https://gateway:9443
+    GATEWAY_CA_FILE: /certs/ca.pem
+    GATEWAY_CERT_FILE: /certs/client.pem
+    GATEWAY_KEY_FILE: /certs/client.key
+    GATEWAY_TIMEOUT_SECONDS: ${GATEWAY_TIMEOUT_SECONDS:-3}
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-pulse}
+      POSTGRES_DB: pulse
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"] # the broker holds work in flight, not the system of record
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Throwaway certificates for the demonstration gateway: a CA, a server certificate, a client certificate.
+  certs:
+    <<: *app
+    command: ["python", "-m", "pulse.standin.devcerts", "/certs"]
+    volumes:
+      - certs:/certs
+    restart: "no"
+
+  # The two systems this pipeline talks to, as stand-ins. They are not published: only the other services reach them.
+  # Both keep an idle connection for 30 s. The clients (httpx) drop theirs after 5 s, and uvicorn's own default is also 5 s:
+  # with equal values a request can be sent down a connection the server is closing at that very moment (ReadError).
+  # The rule: the side that reuses connections must give up on them before the side that serves them does.
+  registry:
+    <<: *app
+    command: ["uvicorn", "pulse.standin.registry_app:app_factory", "--factory", "--host", "0.0.0.0", "--port", "9100", "--no-access-log", "--timeout-keep-alive", "30"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    <<: *app
+    command:
+      - uvicorn
+      - pulse.standin.gateway_app:app_factory
+      - --factory
+      - --host=0.0.0.0
+      - --port=9443
+      - --ssl-keyfile=/certs/server.key
+      - --ssl-certfile=/certs/server.pem
+      - --ssl-ca-certs=/certs/ca.pem
+      - --ssl-cert-reqs=2 # a client without a certificate does not get past the handshake
+      - --no-access-log
+      - --timeout-keep-alive=30 # see the comment above the registry
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      certs: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl, urllib.request as u; c = ssl.create_default_context(cafile='/certs/ca.pem'); c.load_cert_chain('/certs/client.pem', '/certs/client.key'); u.urlopen('https://localhost:9443/health', context=c, timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "pulse migrate && pulse index"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    <<: *app
+    build: .
+    ports:
+      - "127.0.0.1:${API_PORT:-8300}:8000"
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      registry: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["celery", "-A", "pulse.tasks", "worker", "--loglevel=INFO", "--concurrency=2"]
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      registry: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    # The image's own check asks the API's port, which a worker does not have. This one asks the worker, through the broker.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A pulse.tasks inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      interval: 20s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  beat:
+    <<: *app
+    command: ["celery", "-A", "pulse.tasks", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    # No healthcheck, on purpose (and switched off, or the image's own check, which asks the API's port, would apply). Beat has
+    # no port, and the file it keeps its schedule in is not rewritten while it runs: a check on that file's age failed 15
+    # minutes into a healthy run. The evidence that beat is scheduling is the heartbeat it makes the worker write:
+    # /api/health reports it as "worker" and goes down when it is older than three intervals.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # Browser tests (`make e2e`, profile "e2e"): Playwright against the running demo, accessibility scans included.
+  # It shares the API container's network, so the page is at http://localhost:8000: a secure context, and no host port
+  # is opened for the tests.
+  e2e:
+    profiles: ["e2e"]
+    image: mcr.microsoft.com/playwright:v1.49.1-jammy
+    network_mode: "service:api"
+    working_dir: /work/e2e
+    environment:
+      HOME: /tmp
+      CI: ${CI:-}
+      E2E_BASE_URL: http://localhost:8000
+    volumes:
+      - ./e2e:/work/e2e
+      - ./docs/img:/work/docs/img
+    depends_on:
+      api: { condition: service_healthy }
+    command: ["bash", "-lc", "npm ci --no-audit --no-fund && npx tsc --noEmit && npx playwright test"]
+
+volumes:
+  db-data:
+  certs:

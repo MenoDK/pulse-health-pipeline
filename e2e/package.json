@@ -1,0 +1,19 @@
+{
+  "name": "pulse-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser tests for the landing page and the lab. They run against a live `make demo`.",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.49.1",
+    "@types/node": "22.10.5",
+    "typescript": "5.7.3"
+  },
+  "overrides": {
+    "playwright-core": "1.49.1"
+  }
+}

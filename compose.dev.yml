@@ -1,0 +1,10 @@
+# Opens the database and Redis on loopback so the integration tests can reach them:
+#   docker compose -f docker-compose.yml -f compose.dev.yml up -d --wait db redis
+# The ports are deliberately unusual so they never fight a Postgres or Redis you already run.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-15440}:5432"
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-16395}:6379"

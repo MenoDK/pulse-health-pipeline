@@ -1,0 +1,181 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The tests that need a database or a broker run against these, not against mocks; the services are declared per job.
+  DATABASE_URL: postgresql://pulse:pulse@localhost:5432/pulse
+  REDIS_URL: redis://localhost:6379/0
+
+jobs:
+  quality:
+    name: lint, types, every test against PostgreSQL + Redis (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulse -d pulse" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check . && ruff format --check .
+      - run: mypy
+      # The figures on the landing page are the figures these commands print.
+      - run: python scripts/check_numbers.py
+      # A missing parenthesis in the lab's script once passed every test that does not open a browser.
+      - run: for f in site/*.js site/i18n/*.js; do node --check "$f"; done
+      - run: pytest -ra
+
+  tour:
+    name: the tour on the landing page is what the code prints today
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulse -d pulse" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      # Records the five tapes again on a scratch database and fails if site/transcripts.js says anything else.
+      - run: python scripts/record_transcripts.py --check
+
+  mutation:
+    name: every decision is proven by sabotage (a break must turn a test red)
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulse -d pulse" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - run: python -u scripts/sabotage.py
+
+  stack:
+    name: the stack starts healthy, passes the black-box smoke test, and refuses to run the lab in production
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: make demo (seven containers, the lab on)
+        run: make demo
+      - name: Fifty black-box checks through the HTTP API
+        run: make smoke
+      - name: The lab refuses to start in production
+        run: |
+          set +e
+          docker run --rm -e APP_ENV=production -e LAB_MODE=true pulse-health-pipeline:local
+          status=$?
+          test "$status" -ne 0
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - run: docker compose down -v
+
+  browser:
+    name: Browser (landing, lab, 14 languages; Playwright + axe)
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # The same command a reviewer runs locally: builds the stack with the lab on and drives it with Playwright.
+      - name: make e2e
+        run: make e2e
+        env:
+          CI: "true"
+      - name: Test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: browser-test-results, path: e2e/test-results, if-no-files-found: ignore }
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - run: docker compose down -v
+
+  security:
+    name: Security (secrets, Dockerfile, workflows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      # The binary, pinned and checksum-verified, instead of gitleaks-action: the action scans "<first commit>^..HEAD",
+      # and the first commit of a new repository has no parent, so it fails on the very first push.
+      - name: Install gitleaks (pinned, checksum verified)
+        run: |
+          v=8.24.3
+          base=https://github.com/gitleaks/gitleaks/releases/download/v$v
+          archive=gitleaks_${v}_linux_x64.tar.gz # keep the release's file name: the checksum list refers to it
+          curl -sSfLO "$base/$archive"
+          curl -sSfLO "$base/gitleaks_${v}_checksums.txt"
+          sha256sum --check --ignore-missing "gitleaks_${v}_checksums.txt" | grep -F "$archive: OK"
+          tar xzf "$archive" gitleaks
+      - name: Secret scan (full history)
+        run: ./gitleaks git --no-banner --redact -v .
+      - name: Lint the Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with: { dockerfile: Dockerfile, failure-threshold: warning }
+      - name: Lint the workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color

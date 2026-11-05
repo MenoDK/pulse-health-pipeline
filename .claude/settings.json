@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v docsguard >/dev/null 2>&1 || exit 0; docsguard hook git-guard"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v docsguard >/dev/null 2>&1 || exit 0; docsguard hook scope-guard"
+          }
+        ]
+      }
+    ]
+  }
+}

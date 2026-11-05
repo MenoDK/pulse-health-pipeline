@@ -1,0 +1,35 @@
+/* Only what the lab needs beyond the shared kit. */
+
+/* The indicator report and the search evaluation are tables of numbers. They keep their columns and scroll sideways
+   inside the card instead of wrapping into noise. */
+.box:has(> table.matrix) {
+  overflow-x: auto;
+}
+
+table.matrix {
+  width: 100%;
+  min-width: 460px;
+  margin: 12px 0 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+table.matrix th,
+table.matrix td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  white-space: nowrap;
+}
+
+table.matrix thead th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+table.matrix tbody th {
+  font-weight: 600;
+}

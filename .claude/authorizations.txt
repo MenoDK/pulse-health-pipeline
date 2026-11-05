@@ -1,0 +1,5 @@
+# Written permission to touch a protected path. One line each, reviewed like code:
+#
+#   path:<substring of the path> -- <why this is allowed, and until when>
+#
+# A line without the reason after `--` is ignored on purpose.

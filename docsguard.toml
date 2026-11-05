@@ -1,0 +1,23 @@
+# docsguard configuration. Every key is optional; unknown keys are an error.
+
+docs_dir = "docs"
+map_file = "docs/00-READ-FIRST.md"
+adr_dir = "docs/adr"
+handoff_file = "docs/HANDOFF.md"
+archive_dirs = ["docs/archive"]
+
+[budget]
+max_lines_per_file = 200      # per file loaded at session start
+max_session_tokens = 6000     # CLAUDE.md + @imports + unscoped rules, estimated (characters / 4)
+max_skill_tokens = 5000       # skill bodies are truncated after a conversation is compacted
+
+# A dismissal always carries its reason; one that stops matching is reported so it cannot rot.
+# [[exempt]]
+# rule = "map-complete"
+# path = "docs/generated/api.md"
+# reason = "generated on every build; not hand-maintained, so not mapped"
+
+# Paths a session may read but not write (added to the built-in secrets/keys/.git defaults).
+# [[scope.protected]]
+# pattern = "infra/production/**"
+# reason = "production configuration is changed through review, not by an agent"
