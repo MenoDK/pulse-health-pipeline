@@ -17,10 +17,9 @@ documentation are complete and verified locally. Open items are in the checklist
 
 ## 3. What the owner does now
 
-Push to GitHub and enable Actions: `.github/workflows/ci.yml` is linted (actionlint, hadolint) but has never run there. The
-matrix is Python 3.11, 3.12 and 3.13; this was developed and measured on 3.14, so a 3.11 failure is possible and would be
-real. Then ask someone who reads Hindi, Bengali, Urdu and Arabic to read the landing page: those translations are the
-least certain.
+The workflow has run on GitHub: all eight jobs are green (run 42024939607), including the matrix on Python 3.11, 3.12 and
+3.13 (this was developed and measured on 3.14). Ask someone who reads Hindi, Bengali, Urdu and Arabic to read the landing
+page: those translations are the least certain.
 
 ## 4. Deadlines
 

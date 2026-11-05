@@ -15,7 +15,7 @@
 | 9 | Sabotage script: every decision is proven by a break that must turn a test red | done | `scripts/sabotage.py` (158 sabotages, 0 survivors on 2026-11-05) |
 | 10 | Containers, health-gated compose, black-box smoke test | done | `Dockerfile`, `docker-compose.yml`, `scripts/smoke.sh` (50 checks) |
 | 11 | Browser tests with accessibility scans in both themes and 14 languages | done | `e2e/`, `make e2e` (65 tests) |
-| 12 | CI workflow | doing | `.github/workflows/ci.yml`: linted with actionlint and hadolint, not yet run on GitHub |
+| 12 | CI workflow | done | `.github/workflows/ci.yml`: all eight jobs green on GitHub (run 42024939607, commit 05bfd73); the first two runs found two CI-only bugs, see HANDOFF §7 |
 | 13 | A sentence embedder behind the existing `Embedder` interface | todo | the `gap` row of `pulse eval` is the case it would improve |
 | 14 | A re-keying job for pseudonyms | todo | the key id is stored with every pseudonym; ADR 0006 |
 | 15 | A reconciliation count against the registry, to notice what the overlap window cannot | todo | ADR 0003; `pulse sync --full` is the manual remedy |
