@@ -233,8 +233,9 @@ landing page's figure for them is checked by `scripts/check_numbers.py`.
   syntax-checks every script of the site.
 - **The worker and the scheduler showed as unhealthy** under `docker compose up --wait`, because the image's own health check
   asks the API's port. A first fix for the scheduler (watching its schedule file) failed 15 minutes into a healthy run, because that
-  file is not rewritten while it runs; the scheduler now has no check of its own, and the heartbeat it makes the worker write
-  is what `/api/health` reports.
+  file is not rewritten while it runs. Giving it no check at all passed on the developer's Compose and failed on the CI runner's
+  newer one (`has no healthcheck configured` under `up --wait`). The scheduler now checks that it can reach its broker; that it
+  is scheduling is what the heartbeat it makes the worker write is for, and `/api/health` reports it.
 - **The first picture of the landing page had the status card on top of the artwork.** No test sees that; looking at the
   screenshot did. The artwork was redrawn to leave the room the page's overlays need.
 - **An unexplained `ReadError`.** After the lab's "Connect without it" (a rejected TLS handshake), the *next* call down the

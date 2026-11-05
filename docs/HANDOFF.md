@@ -44,8 +44,8 @@ None.
 - Do not change the figures on the landing page by hand: `make numbers` compares them with what the commands print.
 - Do not hand-edit one language table to "fix" a string and leave the others: `site/i18n/<code>.js` mirrors `content.js`
   key for key (English is the source and the fallback). Strings that quote the lab's English buttons stay English on purpose.
-- Do not give `beat` a health check on its schedule file, and do not "fix" the `ReadError` below by lengthening keep-alive:
-  both were tried and disproved.
+- Do not give `beat` a health check on its schedule file, do not remove its check, and do not "fix" the `ReadError` below by
+  lengthening keep-alive: all three were tried and disproved.
 
 ## 6. Decisions
 
@@ -60,9 +60,10 @@ None.
 - A syntax error in `site/lab.js` (one missing parenthesis) passed every test that does not open a browser. `make site-syntax`
   (and the first CI step after the type check) now parses every script of the site.
 - `docker compose up --wait` showed `worker` and `beat` unhealthy because the image's own `HEALTHCHECK` asks the API's port.
-  The worker now checks itself with `celery inspect ping`. `beat` has no check: one on its schedule file's age failed 15 minutes
-  into a healthy run, because the file is not rewritten while beat runs. Its evidence is the heartbeat it makes the worker
-  write, which `/api/health` reports as `worker`. `healthcheck: { disable: true }` is needed, or the image's check applies.
+  The worker now checks itself with `celery inspect ping`. `beat` checks that it can reach its broker: one on its schedule file's
+  age failed 15 minutes into a healthy run (the file is not rewritten while beat runs), and no check at all (or `disable: true`)
+  passed locally but failed on the CI runner, whose newer Compose refuses `up --wait` with `has no healthcheck configured`. That
+  beat is scheduling is shown by the heartbeat it makes the worker write, which `/api/health` reports as `worker`.
 - **Unexplained, unresolved:** after the lab's "Connect without it" (a rejected mutual-TLS handshake), the next call down the pooled,
   authenticated connection to the gateway fails once with `ReadError`. Reproduced by hand and in the browser tests (3 of 3
   runs). Not a keep-alive race (servers 30 s, client 5 s, still failed). An unauthenticated attempt from another container did

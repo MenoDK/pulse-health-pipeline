@@ -139,12 +139,16 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-    # No healthcheck, on purpose (and switched off, or the image's own check, which asks the API's port, would apply). Beat has
-    # no port, and the file it keeps its schedule in is not rewritten while it runs: a check on that file's age failed 15
-    # minutes into a healthy run. The evidence that beat is scheduling is the heartbeat it makes the worker write:
-    # /api/health reports it as "worker" and goes down when it is older than three intervals.
+    # Beat has no port, and the image's own check asks the API's. What can be checked from inside it is that it can reach the
+    # broker it sends to. That it is scheduling is what the heartbeat is for: beat makes the worker write one, and /api/health
+    # reports it as "worker". (Two other ways failed: a check on the age of its schedule file, which is not rewritten while it
+    # runs, and no check at all, which newer Compose versions refuse under `up --wait`.)
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-c", "import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=2).ping()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
 
   # Browser tests (`make e2e`, profile "e2e"): Playwright against the running demo, accessibility scans included.
