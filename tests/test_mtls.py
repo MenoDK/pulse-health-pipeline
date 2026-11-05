@@ -14,6 +14,11 @@ from pulse.standin import devcerts
 from pulse.standin.gateway_app import create_gateway_app
 from tests.conftest import START, RunningServer
 
+# A server that refuses a client for its certificate does so after the TLS 1.3 handshake, and how that reaches the client
+# depends on timing and on the TLS library: a TLS alert (ReadError) or a closed connection (RemoteProtocolError). Both
+# are the server saying no. The client's own checks fail earlier, as a ConnectError, and are tested separately below.
+SERVER_REFUSED = ("ReadError", "RemoteProtocolError")
+
 
 @pytest.fixture(scope="module")
 def certs(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -75,9 +80,7 @@ def test_a_client_without_a_certificate_never_reaches_the_application(server: Ru
     bare = client(server, ca_file=str(certs / "ca.pem"))
     delivery = bare.send("mtls-none", {"n": 1})
     assert (delivery.outcome, delivery.http_status) == ("retry", None)  # a transport error with a name, not a crash
-    assert delivery.detail.endswith(
-        "ReadError"
-    )  # the server sent a TLS alert after the handshake (TLS 1.3 client auth)
+    assert delivery.detail.endswith(SERVER_REFUSED)  # the server refused after the handshake (TLS 1.3 client auth)
     assert gateway_requests_seen(server, certs) == before  # and no HTTP request ever reached the application
 
 
@@ -93,7 +96,7 @@ def test_a_certificate_signed_by_another_authority_is_refused(
     )
     delivery = stranger.send("mtls-stranger", {"n": 1})
     assert (delivery.outcome, delivery.http_status) == ("retry", None)
-    assert delivery.detail.endswith("ReadError")  # refused by the server, not by the client's own checks
+    assert delivery.detail.endswith(SERVER_REFUSED)  # refused by the server, not by the client's own checks
     assert gateway_requests_seen(server, certs) == before
 
 

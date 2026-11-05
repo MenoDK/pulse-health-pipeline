@@ -79,7 +79,8 @@ def build_lab_router(services: Services) -> APIRouter:
     def gateway(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         # Every call here is a lab control (read the state, pick a scenario, reset): repeating one changes nothing.
         # After a rejected attempt without a certificate (the "Connect without it" button) the first call down the
-        # pooled, authenticated connection can fail with a ReadError; the second one opens a new connection and works.
+        # pooled, authenticated connection can fail with a transport error (a ReadError here, and the same family
+        # elsewhere); the second call opens a new connection and works.
         # The cause was not found (docs/HANDOFF.md). The pipeline itself does not need this: its own retry rules
         # already treat a transport error as a failed attempt to be repeated later.
         try:

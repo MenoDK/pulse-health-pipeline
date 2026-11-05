@@ -68,6 +68,11 @@ None.
   runs). Not a keep-alive race (servers 30 s, client 5 s, still failed). An unauthenticated attempt from another container did
   not break the connection; one from the same process did. The lab's `gateway()` repeats a control call once, which is safe
   because they are idempotent, and `test_api.py` pins it. The pipeline is not affected.
+- The first run on GitHub failed two mutual-TLS tests that had passed 550 times on the developer's machine: they named the exact
+  exception a rejected client sees (`ReadError`), and on the runner the same refusal arrives as `RemoteProtocolError` (a closed
+  connection instead of a TLS alert, which depends on timing and the TLS library). Both mean "the server said no after the
+  handshake"; the client's own checks fail earlier as `ConnectError`. The tests accept the first two and the pipeline was never
+  affected. Do not pin the exact name of a transport exception in a test.
 - The first landing screenshot showed the hero's status card on top of the artwork. The overlays take roughly the top 70 and
   the bottom 160 pixels of the box, so the artwork lives between y = 130 and 505 of `viewBox="0 50 500 620"`; a test that measures
   labels inside the frame does not see an overlap with an element outside it.
